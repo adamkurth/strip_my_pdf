@@ -1,8 +1,16 @@
+import tkinter as tk
+from tkinter import filedialog, messagebox
+from tkinter import ttk
+import matplotlib.pyplot as plt
 import PyPDF2
 import pandas as pd
 import re
+import os
 
 
+is_processing = False
+
+""" PDF TEXT/READER FUNCTIONS """
 def clean_text(text):
     # Implement any specific cleanup here, e.g., replacing known misinterpretations, fixing line breaks
     text = text.replace('\n', ' ')
@@ -17,7 +25,6 @@ def extract_field(text, pattern):
             return "0.00"
         return match.group(1)
     return None
-
 
 def process_text(text):
     patterns = {
@@ -61,52 +68,131 @@ def select_best_address(addresses):
     return max(corrected_addresses, key=len, default=None)
 
 
-def reader(filename):
+def reader(filename, progress_callback):
     with open(filename, 'rb') as pdf_file:
         pdf_reader = PyPDF2.PdfReader(pdf_file)
-        print('Number of pages:', len(pdf_reader.pages))
+        total_pages = len(pdf_reader.pages)
         all_data = []
-        for page_number, page in enumerate(pdf_reader.pages):
-            page_text = page.extract_text()
-            if page_text:
-                cleaned_text = clean_text(page_text)
-                page_data = process_text(cleaned_text)
-                all_data.append(page_data)
-    # Create a DataFrame with all data
-    full_df = pd.DataFrame(all_data)
-    # Exclude individual address case columns
-    columns_to_display = [col for col in full_df.columns if not col.startswith('address_case')]
-    return full_df[columns_to_display]
 
+        for start_page in range(0, total_pages, 20):
+            end_page = min(start_page + 20, total_pages)
+            chunk_data = []
+
+            for page_number in range(start_page, end_page):
+                page = pdf_reader.pages[page_number]
+                page_text = page.extract_text()
+                if page_text:
+                    cleaned_text = clean_text(page_text)
+                    page_data = process_text(cleaned_text)
+                    chunk_data.append(page_data)
+
+            if chunk_data:
+                chunk_df = pd.DataFrame(chunk_data)
+                all_data.append(chunk_df)
+            
+            progress_callback(start_page, total_pages)
+
+        return pd.concat(all_data, ignore_index=True) if all_data else pd.DataFrame()
+
+""" GUI FUNCTIONS """
+
+def process_single_file(file_path):
+    global is_processing
+    is_processing = True
+    try:
+        data = reader(file_path, update_progress)
+        if data.empty:
+            messagebox.showinfo("Info", "No data found in the PDF.")
+        return data
+    except Exception as e:
+        messagebox.showerror("Error", f'Error processing file: {str(e)}')
+    finally:
+        is_processing = False
+        return None
+
+    
+def process_directory(directory):
+    global is_processing
+    is_processing = True
+    pdf_files = [f for f in os.listdir(directory) if f.lower().endswith('.pdf')]
+    all_data = []
+    for pdf_file in pdf_files:
+        full_path = os.path.join(directory, pdf_file)
+        try: 
+            pdf_data = reader(full_path, update_progress)
+            if not pdf_data.empty:
+                preview_choice = messagebox.askyesno("Preview", f"Do you want to preview the data from {pdf_file}?")
+                if preview_choice:
+                    print(pdf_data)  # Show the first few rows of this file
+            all_data.append(pdf_data)
+        except Exception as e:
+            messagebox.showerror("Error", f'Error processing {pdf_file}: {e}')
+        finally: 
+            is_processing = False
+    return pd.concat(all_data, ignore_index=True) if all_data else None
+    
+def analyze_single_file():
+    file_path = filedialog.askopenfilename(filetypes=[("PDF files", "*.pdf")])
+    if file_path:
+        data = process_single_file(file_path)
+        process_data(data)
+        
+def analyze_directory():
+    directory = filedialog.askdirectory()
+    if directory:
+        data = process_directory(directory)
+        process_data(data)
+    
+def process_data(data):
+    if data is not None and not data.empty:
+        preview_choice = messagebox.askyesno("Preview", "Do you want to preview the data?")
+        if preview_choice:
+            print(data.head())  # Show the first few rows
+
+        save_choice = messagebox.askyesno("Save", "Do you want to save the data to a CSV file?")
+        if save_choice:
+            output_filename = filedialog.asksaveasfilename(defaultextension='.csv', filetypes=[('CSV files', '*.csv')])
+            if output_filename:
+                data.to_csv(output_filename, index=False)
+                messagebox.showinfo("Saved", f"Data saved to {output_filename}")
+    else:
+        messagebox.showinfo("Info", "No PDF files found or an error occurred.")
+
+def update_progress(start_page, total_pages):
+    progress = int((start_page / total_pages) * 100)
+    progress_var.set(progress)
+    progress_label.config(text=f"{progress}%")  # Update the label
+    root.update_idletasks()  # Update GUI
+
+def update_loading_indicator():
+    global is_processing  # Ensure this line is present
+    if is_processing:
+        current_text = loading_label.cget("text")
+        num_dots = current_text.count(".")
+        new_text = "Processing" + "." * ((num_dots + 1) % 4)  # Cycle through 0 to 3 dots
+        loading_label.config(text=new_text)
+    else:
+        loading_label.config(text="Idle")
+    root.after(500, update_loading_indicator)  # Update every 500 ms
+
+""" MAIN PROGRAM """
 if __name__ == '__main__':
-    print('\nAssuming the file is in the current working directory\n')    
-    while True:
-        print("\nMenu:")
-        print("1. Analyze PDF file")
-        print("2. Exit")
-        
-        choice = input("Enter your choice (1 or 2): ")
-        
-        if choice == "1":
-            filename = input("Enter the name of the PDF file: ")
-            try:
-                df = reader(filename)
-                print("\nData processed successfully.\n")
-                
-                preview_choice = input("Do you want to preview the data? (yes/no): ").lower()
-                if preview_choice == 'yes':
-                    print(df.head())  # Show the first few rows
+    root = tk.Tk()
+    root.title("PDF Reader")
+    root.geometry("300x300")
+    
+    # Initialize the 'loading_label'
+    loading_label = tk.Label(root, text="Idle")
+    loading_label.pack()
+    
+    progress_label = tk.Label(root, text="0%")
+    progress_label.pack()
 
-                save_choice = input("Do you want to save the data to a CSV file? (yes/no): ").lower()
-                if save_choice == 'yes':
-                    output_filename = input("Enter a name for the output file (default 'output.csv'): ")
-                    output_filename = output_filename if output_filename else 'output.csv'
-                    df.to_csv(output_filename, index=False)
-                    print(f"Data saved to {output_filename}")
-            except Exception as e:
-                print(f"An error occurred: {e}")
-        elif choice == "2":
-            print("Exiting...")
-            break
-        else:
-            print("Invalid choice. Please try again.")
+    progress_var = tk.IntVar()
+    progress_bar = ttk.Progressbar(root, orient="horizontal", length=300, mode="determinate", variable=progress_var)
+    progress_bar.pack()
+
+    tk.Button(root, text="Analyze Single File", command=analyze_single_file).pack()
+    tk.Button(root, text="Analyze Directory", command=analyze_directory).pack()
+    update_loading_indicator()
+    root.mainloop()
