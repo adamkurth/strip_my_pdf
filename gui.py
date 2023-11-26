@@ -12,7 +12,7 @@ def process_single_file(file_path):
     global is_processing
     is_processing = True
     try:
-        data = reader.reader(file_path, update_progress)
+        data = reader.reader(file_path, update_progress, view=False)
         if data.empty:
             messagebox.showinfo("Info", "No data found in the PDF.")
         return data
@@ -30,11 +30,13 @@ def process_directory(directory):
     for pdf_file in pdf_files:
         full_path = os.path.join(directory, pdf_file)
         try:
-            pdf_data = reader.reader(full_path, update_progress)
+            pdf_data = reader.reader(full_path, update_progress, view=True)
             if not pdf_data.empty:
                 preview_choice = messagebox.askyesno("Preview", f"Do you want to preview the data from {pdf_file}?")
-                if preview_choice:
-                    print(pdf_data.head())
+                if preview_choice: # FOR ADDRESS CASES  
+                    address_case_columns = [col for col in pdf_data.columns if 'address_case' in col]
+                    address_columns = [col for col in pdf_data.columns if col == 'address']
+                    print(pdf_data[address_case_columns + address_columns].head(50))
             all_data.append(pdf_data)
         except Exception as e:
             messagebox.showerror("Error", f'Error processing {pdf_file}: {e}')
@@ -57,7 +59,7 @@ def process_data(data):
     if data is not None and not data.empty:
         preview_choice = messagebox.askyesno("Preview", "Do you want to preview the data?")
         if preview_choice:
-            print(data.head())
+            print(data.head(50))
 
         save_choice = messagebox.askyesno("Save", "Do you want to save the data to a CSV file?")
         if save_choice:
