@@ -25,11 +25,18 @@ def process_text(text):
         'customer_number': r'Customer #:\s(\d+)',
         'phone_number_1': r'Phone 2.*?(\(\d{3}\)\d{3}-\d{4})',
         'phone_number_2': r'\(\d{3}\)\d{3}-\d{4}.*?(\(\d{3}\)\d{3}-\d{4})',
-        'collection_status': r'Total Product Sales\s*(PP)?',
-        'collection_status': r'Sales\w+ [A-Z]+\s*(PP)?\s*\d',
-        'total_product_sales': r'(\d{1,3}(?:,\d{3})*\.\d{2})',
-        'balance': r'(\d{1,6}\.\d{2})\s+Invoice #',
-        'past_due': r'(\d{1,6}\.\d{2})\s+Invoice #', 
+        'collection_status_case_1': r'Total Product Sales\s*(PP)?',
+        'collection_status_case_2': r'Sales\w+ [A-Z]+\s*(PP)?\s*\d',
+        
+        'total_product_sales_case_1': r'(\d{1,3}(?:,\d{3})*\.\d{2})',
+        'total_product_sales_case_2': r"Total Product Sales(?:[A-Z\s]+)?(\d+\.\d{2})",
+        
+        'balance_case_1': r'(\d{1,6}\.\d{2})\s+Invoice #',
+        'balance_case_2': r'Balance Past DueADDR 1 [A-Z\s]+ [\d\.\-]+',
+        
+        'past_due_case_1': r'(\d{1,6}\.\d{2})\s+Invoice #', 
+        # 'past_due_case_2':r'Past\s+Due\s+[A-Z\s/#:]+(\d{1,3}(?:,\d{3})*\.\d{2})',
+        
         'address_case_1': r'\d+ Collection Notes.*?(\d{1,5}\s[\w\s-]+?\s(RD|ST|AVE|LN|DR|BLVD|WAY|CT|PL)\s[\w\s-]+?,\s[A-Z]{2}\s\d{5})',
         'address_case_2': r'(\d{1,5} [A-Z0-9 ]+ (RD|ST|AVE|LN|DR|BLVD|WAY|CT|PL) [A-Z]+, [A-Z]{2} \d{5})',
         'address_case_3': r'(\d{1,5} [A-Z0-9]+ [A-Z]+, [A-Z]{2} \d{5})',
@@ -41,11 +48,18 @@ def process_text(text):
         'address_case_9': r'(P\.O\. BOX \d{1,5},\s[A-Z]+,\s[A-Z]{2}\s\d{5})',  # PO Box format
         'address_case_10': r'\d+ Collection Notes.*?(\d{1,5}\s[\w\s-]+?\s(RD|ST|AVE|LN|DR|BLVD|WAY|CT|PL)\s[\w\s-]+?,\s[A-Z]{2}\s\d{5})',
     }
-
+    #initial extraction of data
     extracted_data = {field: extract_field(text, pattern) for field, pattern in patterns.items()}
+    
+    # filtering of addresses
     addresses = [extracted_data.get(f'address_case_{i}') for i in range(1, 11)]
     best_address = select_best_address(addresses, extracted_data.get('business_name', ''))
     extracted_data['address'] = best_address
+    
+    # filtering of total product sales
+    sales_values = [extracted_data.get(f'total_product_sales_case_{i}') for i in range(1, 3)]
+    best_sales_values = select_best_sales_value(sales_values)
+    extracted_data['total_product_sales'] = best_sales_values
     return extracted_data
 
 def select_best_address(addresses, business_name):
@@ -70,12 +84,28 @@ def select_best_address(addresses, business_name):
 
     return shortest_address
 
+def select_best_sales_value(sales_values):
+    # Filter out None values and convert to float
+    valid_sales = [float(value.replace(',', '')) for value in sales_values if value]
+
+    # If there's only one valid sales value or none, return it
+    if len(valid_sales) == 1:
+        return str(valid_sales[0])
+    elif not valid_sales:
+        return None
+
+    # Choose the largest sales value among valid values
+    return str(max(valid_sales))
+
 def reader(filename, progress_callback, view=False):
+    print(f"Processing PDF file: {filename}")
     def view_processed_text(processed_data):
         if view:  # Only print if view is True
             print("Viewing processed text for debugging purposes:")
             for page_number, text in processed_data.items():
-                print(f"Page {page_number}:\n{text}\n{'-'*40}")
+                # print(f"Page {page_number}:\n{text}\n{'-'*40}")
+                if page_number == 1435:
+                    print(f"Page {page_number}:\n{text}\n{'-'*40}")
 
     with open(filename, 'rb') as pdf_file:
         pdf_reader = PyPDF2.PdfReader(pdf_file)
@@ -110,23 +140,14 @@ def reader(filename, progress_callback, view=False):
         view_processed_text(processed_text_data)
 
         df = pd.concat(all_data, ignore_index=True) if all_data else pd.DataFrame()
-        return df
-
-
-def debug(df):
-    print("\nDebugging\n")
-    print("DataFrame Columns:\n", df.columns)
-    print("\nFirst 10 Addresses:\n", df['address'].head(10))
-    print("\nLast 10 Addresses:\n", df['address'].tail(10))
-    print("\nAddress Value Counts:\n", df['address'].value_counts())
-
-    # Check for correct address format
-    correct_address_pattern = r'^\d+\s[A-Z0-9 ]+\s(RD|ST|AVE|LN|DR|BLVD|WAY|CT|PL)\s[A-Z]+,\s[A-Z]{2}\s\d{5}$'
-    incorrect_addresses = df[~df['address'].str.match(correct_address_pattern)]
-
-    if not incorrect_addresses.empty:
-        print("\nIncorrect Addresses Found:\n")
-        print(incorrect_addresses[['page', 'address']])
-        # Print the page numbers of incorrect addresses
-        incorrect_pages = incorrect_addresses['page'].unique()
-        print("\nPages with Incorrect Addresses:\n", incorrect_pages)
+     
+    # Specify the new order of columns
+    new_order = ['date', 'business_name', 'contact_name', 'collection_status',
+                 'customer_number', 'phone_number_1', 'phone_number_2', 'balance_case_1',
+                 'past_due_case_1', 'total_product_sales', 'total_product_sales_case_1',
+                 'total_product_sales_case_2', 'address_case_1', 'address_case_2', 'address_case_3',
+                 'address_case_4', 'address_case_5', 'address_case_6', 'address_case_7',
+                 'address_case_8', 'address_case_9', 'address_case_10', 'address']
+    df = df[new_order]
+    print("Finished processing PDF file.")
+    return df
