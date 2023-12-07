@@ -33,9 +33,8 @@ def process_text(text):
         'phone_number_2': r'\(\d{3}\)\d{3}-\d{4}.*?(\(\d{3}\)\d{3}-\d{4})',
         # collection notes
         'collection_notes_case_1': r'Collection Status\s+Total Product Sales[^\n]*?\bPP\b\s+([A-Z\s]+)\s+\d+\.\d{2}',
-        'collection_notes_case_2': r'PP\s+(BAD DEBT)',
-        'collection_notes_case_3': r'Collection Status\s+Total Product Sales[^\n]*?\bPP\b\s+([A-Z\s]+)\s+\d+\.\d{2}',
-        'collection_notes_case_4': r'Collection Status\s+Total Product Sales[^\n]*?(CBL/CORI COLLECTING)\b',
+        'collection_notes_case_2': r'Collection Status\s+Total Product Sales[^\n]*?\bPP\b.*?(BAD DEBT)\b',
+        'collection_notes_case_3': r'Collection Status\s+Total Product Sales[^\n]*?(CBL/CORI COLLECTING)\b(?!\s+-\d)',
         # total product sales
         'total_product_sales_case_1': r'(\d{1,3}(?:,\d{3})*\.\d{2})',
         'total_product_sales_case_2': r"Total Product Sales(?:[A-Z\s]+)?(\d+\.\d{2})",
@@ -75,6 +74,9 @@ def process_text(text):
     extracted_data['collection_status'] = extracted_data.get('collection_status_case_4', [])
     
     # best collection notes 
+    collection_notes_values = [extracted_data.get(f'collection_notes_case_{i}') for i in range(1, 5)]
+    best_collection_notes = select_best_collection_note(collection_notes_values)
+    extracted_data['collection_notes'] = best_collection_notes
     
     # best balance case
     balance_values = [
@@ -89,8 +91,14 @@ def process_text(text):
     
     # assign total product salesa
     extracted_data['total_product_sales'] = extracted_data.get('total_product_sales_case_1', None)
+    
+    past_due_values = [extracted_data.get(f'past_due_case_{i}', None) for i in range(1, 3)]
+    best_past_due = select_best_past_due(past_due_values)
+    extracted_data['past_due'] = best_past_due
+
     return extracted_data
 
+"""Select best address formatting."""
 def select_best_address(addresses, business_name):
     # Filter out None values and trim spaces
     valid_addresses = [address.strip() for address in addresses if address]
@@ -113,6 +121,7 @@ def select_best_address(addresses, business_name):
 
     return shortest_address
 
+"""Select best past due formatting."""
 def select_best_sales_value(sales_values):
     # Filter out None values and convert to float
     valid_sales = [float(value.replace(',', '')) for value in sales_values if value]
@@ -126,6 +135,7 @@ def select_best_sales_value(sales_values):
     # Choose the largest sales value among valid values
     return str(max(valid_sales))
 
+""""Select best past due formatting."""""
 def select_best_balance_case(balance_cases):
     balance_case_1, balance_case_2 = balance_cases
 
@@ -146,18 +156,32 @@ def is_valid_balance(value):
     except ValueError:
         return False
 
+"""Select best collection note formatting."""
+def select_best_collection_note(collection_note_cases):
+    # Prioritize non-empty and more detailed collection notes
+    for note_case in collection_note_cases:
+        if note_case and note_case.strip():
+            return note_case.strip()
+    # If all cases are empty or None, return None
+    return None
+
+"""Select best past due formatting."""
+def select_best_past_due(past_due_cases):
+    # Prioritize non-empty and more detailed past due cases
+    for past_due_case in past_due_cases:
+        if past_due_case and past_due_case.strip():
+            return past_due_case.strip()
+    # If all cases are empty or None, return None
+    return None
+
+def view_processed_text(processed_data):
+    if processed_data:
+        print("Viewing processed text for debugging purposes:")
+        for page_number, text in processed_data.items():
+            print(f"Page {page_number}:\n{text}\n{'-'*40}")
+            
 def reader(filename, progress_callback, view=False):
-    print(f"Processing PDF file: {filename}")
-    def view_processed_text(processed_data):
-        if view:
-            print('\n\n','Viewing processed text for debugging purposes:', '\n\n')
-            for page_number, text in processed_data.items():
-                if page_number == 1435:
-                    print(f"Page {page_number}:\n{text}\n{'-'*40}")
-                if page_number == 1481:
-                    print(f"Page {page_number}:\n{text}\n{'-'*40}")
-                if page_number == 21: 
-                    print(f"Page {page_number}:\n{text}\n{'-'*40}")
+    print('\n\n', f'Processing PDF file: {filename}', '\n\n')
 
     with open(filename, 'rb') as pdf_file:
         pdf_reader = PyPDF2.PdfReader(pdf_file)
@@ -202,7 +226,7 @@ def reader(filename, progress_callback, view=False):
         'customer_number', 
         'phone_number_1', 'phone_number_2', 
         'balance_case_1', 'balance_case_2', 'balance_case_3', 'balance',
-        'past_due_case_1', 
+        'past_due_case_1', 'past_due_case_2', 'past_due',
         'total_product_sales', 'total_product_sales_case_1', 'total_product_sales_case_2',
         'address_case_1', 'address_case_2', 'address_case_3', 'address_case_4',
         'address_case_5', 'address_case_6', 'address_case_7',
@@ -213,3 +237,13 @@ def reader(filename, progress_callback, view=False):
     df = df[new_order]
     print("Finished processing PDF file.")
     return df
+
+def refine_dataframe(df):
+    columns_to_keep = [
+        'date', 'business_name', 'contact_name',
+        'collection_status', 'collection_notes',
+        'customer_number', 'phone_number_1', 'phone_number_2',
+        'balance', 'past_due', 'total_product_sales',
+        'address', 'account_number'
+    ]
+    return df[columns_to_keep].copy()

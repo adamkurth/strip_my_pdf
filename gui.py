@@ -12,16 +12,20 @@ def process_multiple_files(file_path):
     global is_processing
     is_processing = True
     try:
+        # Set view=False to disable printing processed text
         data = reader.reader(file_path, update_progress, view=False)
         if data.empty:
             messagebox.showinfo("Info", "No data found in the PDF.")
+        else:
+            # Add additional processing or exporting logic here if needed
+            pass
         return data
     except Exception as e:
         messagebox.showerror("Error", f'Error processing file: {str(e)}')
         return None
     finally:
         is_processing = False
-        
+
 def process_directory(directory):
     global is_processing
     is_processing = True
@@ -73,17 +77,21 @@ def preview_data_with_user_input(pdf_data):
         print('\n\n Previewing Columns:\n\n')
         preview_df = pdf_data[existing_columns]
         print(preview_df.head(50))
-        print(preview_df.tail(50))        
+        print(preview_df)        
     else:
         print("No matching columns found for the given input.")
 
 
 def analyze_multiple_files():
-    file_paths = filedialog.askopenfilenames(filetypes=[("PDF files", "*.pdf")])
+    file_paths = filedialog.askopenfilenames(filetypes=[("PDF files", "*.pdf")])  # For multiple file selection
     if file_paths:
+        all_data = []
         for file_path in file_paths:
             data = process_multiple_files(file_path)
-            process_data(data) 
+            if data is not None:
+                all_data.append(data)
+        combined_data = pd.concat(all_data, ignore_index=True) if all_data else pd.DataFrame()
+        process_data(combined_data)
 
 def analyze_directory():
     directory = filedialog.askdirectory()
@@ -93,18 +101,26 @@ def analyze_directory():
 
 def process_data(data):
     if data is not None and not data.empty:
-        preview_choice = messagebox.askyesno("Preview", "Do you want to preview the data?")
-        if preview_choice:
-            print(data.head(100))
+        # Ask user for the type of DataFrame to export
+        export_choice = messagebox.askyesno("Export", "Choose 'Yes' for final DataFrame or 'No' for debugging DataFrame.")
+        
+        if export_choice:
+            # Refine DataFrame and export
+            refined_data = reader.refine_dataframe(data)
+            export_dataframe(refined_data)
+        else:
+            # Export full DataFrame for debugging
+            export_dataframe(data)
 
-        save_choice = messagebox.askyesno("Save", "Do you want to save the data to a CSV file?")
-        if save_choice:
-            output_filename = filedialog.asksaveasfilename(defaultextension='.csv', filetypes=[('CSV files', '*.csv')])
-            if output_filename:
-                data.to_csv(output_filename, index=False)
-                messagebox.showinfo("Saved", f"Data saved to {output_filename}")
+def export_dataframe(df):
+    save_choice = messagebox.askyesno("Save", "Do you want to save the data to a CSV file?")
+    if save_choice:
+        output_filename = filedialog.asksaveasfilename(defaultextension='.csv', filetypes=[('CSV files', '*.csv')])
+        if output_filename:
+            df.to_csv(output_filename, index=False)
+            messagebox.showinfo("Saved", f"Data saved to {output_filename}")
     else:
-        messagebox.showinfo("Info", "No PDF files found or an error occurred.")
+        print(df.head(100))  # Display the first 100 rows in the console for preview
 
 def update_progress(start_page, total_pages):
     progress = int((start_page / total_pages) * 100)
