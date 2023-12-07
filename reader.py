@@ -21,22 +21,30 @@ def process_text(text):
         'date': r'HOUSE LEADS(\d{2}/\d{2}/\d{2})',
         'business_name': r'Customer #:\s\d+\s+\((.*?)\)',
         'contact_name': r'Total Product Sales(.*?)(?:PP|\d+\.\d{2})',
-        'collection_status': r'Sales\w+ [A-Z]+\s*(PP)?\s*\d',
+        #collection status
+        'collection_status_case_1': r'Sales\w+ [A-Z]+\s*(PP)?\s*\d',
+        'collection_status_case_2': r'Total Product Sales\s*(PP)?',
+        'collection_status_case_3': r'Sales\w+ [A-Z]+\s*(PP)?\s*\d',
+        'collection_status_case_4': r'Collection Status\s+Total Product Sales[^\n]*?(\bPP\b|None)',
+        # customer number
         'customer_number': r'Customer #:\s(\d+)',
+        # phone numbers
         'phone_number_1': r'Phone 2.*?(\(\d{3}\)\d{3}-\d{4})',
         'phone_number_2': r'\(\d{3}\)\d{3}-\d{4}.*?(\(\d{3}\)\d{3}-\d{4})',
-        'collection_status_case_1': r'Total Product Sales\s*(PP)?',
-        'collection_status_case_2': r'Sales\w+ [A-Z]+\s*(PP)?\s*\d',
-        
+        # collection notes
+        'collection_notes_case_1': r'Collection Status\s+Total Product Sales[^\n]*?\bPP\b\s+([A-Z\s]+)\s+\d+\.\d{2}',
+        'collection_notes_case_2': r'PP\s+(BAD DEBT)',
+        # total product sales
         'total_product_sales_case_1': r'(\d{1,3}(?:,\d{3})*\.\d{2})',
         'total_product_sales_case_2': r"Total Product Sales(?:[A-Z\s]+)?(\d+\.\d{2})",
-        
+        # balance
         'balance_case_1': r'(\d{1,6}\.\d{2})\s+Invoice #',
-        'balance_case_2': r'Balance Past DueADDR 1 [A-Z\s]+ [\d\.\-]+',
-        
+        'balance_case_2': r'Balance Past DueADDR 1 [A-Z\s]+ ([-\d\.\-]+)',
+        # past due
         'past_due_case_1': r'(\d{1,6}\.\d{2})\s+Invoice #', 
-        # 'past_due_case_2':r'Past\s+Due\s+[A-Z\s/#:]+(\d{1,3}(?:,\d{3})*\.\d{2})',
+        'past_due_case_2':r'Past\s+Due\s+[A-Z\s/#:]+(\d{1,3}(?:,\d{3})*\.\d{2})',
         
+        # addresses
         'address_case_1': r'\d+ Collection Notes.*?(\d{1,5}\s[\w\s-]+?\s(RD|ST|AVE|LN|DR|BLVD|WAY|CT|PL)\s[\w\s-]+?,\s[A-Z]{2}\s\d{5})',
         'address_case_2': r'(\d{1,5} [A-Z0-9 ]+ (RD|ST|AVE|LN|DR|BLVD|WAY|CT|PL) [A-Z]+, [A-Z]{2} \d{5})',
         'address_case_3': r'(\d{1,5} [A-Z0-9]+ [A-Z]+, [A-Z]{2} \d{5})',
@@ -60,6 +68,14 @@ def process_text(text):
     sales_values = [extracted_data.get(f'total_product_sales_case_{i}') for i in range(1, 3)]
     best_sales_values = select_best_sales_value(sales_values)
     extracted_data['total_product_sales'] = best_sales_values
+        
+    collection_status_values = {
+        f'collection_status_case_{i}': extracted_data.get(f'collection_status_case_{i}', []) 
+        for i in range(1, 5)
+    }
+    best_collection_status = select_best_collection_status(collection_status_values)
+    extracted_data['collection_status'] = best_collection_status
+
     return extracted_data
 
 def select_best_address(addresses, business_name):
@@ -97,14 +113,34 @@ def select_best_sales_value(sales_values):
     # Choose the largest sales value among valid values
     return str(max(valid_sales))
 
+def select_best_collection_status(collection_status_cases):
+    if not isinstance(collection_status_cases, dict):
+        raise TypeError("collection_status_cases should be a dictionary.")
+    # Initialize variables to track the best column and its count of valid (non-None) entries
+    best_column = None
+    max_valid_count = -1
+   # Iterate over each collection status case in the dictionary
+    for col, values in collection_status_cases.items():
+        # Count the number of valid (non-None) entries in the list
+        valid_count = sum(value is not None for value in values)
+        
+        # If this count is higher than the current maximum, update best_column and max_valid_count
+        if valid_count > max_valid_count:
+            max_valid_count = valid_count
+            best_column = col
+
+    # Return the list of values for the best column, or an empty list if no best column is found
+    return collection_status_cases.get(best_column, [])
+
 def reader(filename, progress_callback, view=False):
     print(f"Processing PDF file: {filename}")
     def view_processed_text(processed_data):
-        if view:  # Only print if view is True
-            print("Viewing processed text for debugging purposes:")
+        if view:
+            print('\n\n','Viewing processed text for debugging purposes:', '\n\n')
             for page_number, text in processed_data.items():
-                # print(f"Page {page_number}:\n{text}\n{'-'*40}")
                 if page_number == 1435:
+                    print(f"Page {page_number}:\n{text}\n{'-'*40}")
+                if page_number == 1481:
                     print(f"Page {page_number}:\n{text}\n{'-'*40}")
 
     with open(filename, 'rb') as pdf_file:
@@ -142,12 +178,20 @@ def reader(filename, progress_callback, view=False):
         df = pd.concat(all_data, ignore_index=True) if all_data else pd.DataFrame()
      
     # Specify the new order of columns
-    new_order = ['date', 'business_name', 'contact_name', 'collection_status',
-                 'customer_number', 'phone_number_1', 'phone_number_2', 'balance_case_1',
-                 'past_due_case_1', 'total_product_sales', 'total_product_sales_case_1',
-                 'total_product_sales_case_2', 'address_case_1', 'address_case_2', 'address_case_3',
-                 'address_case_4', 'address_case_5', 'address_case_6', 'address_case_7',
-                 'address_case_8', 'address_case_9', 'address_case_10', 'address']
+    new_order = [
+        'date', 'business_name', 'contact_name',
+        'collection_status_case_1', 'collection_status_case_2', 'collection_status_case_3', 'collection_status_case_4',
+        'collection_status',
+        'customer_number', 
+        'phone_number_1', 'phone_number_2', 
+        'balance_case_1', 'balance_case_2',  # Added missing comma
+        'past_due_case_1', 
+        'total_product_sales', 'total_product_sales_case_1', 'total_product_sales_case_2',
+        'address_case_1', 'address_case_2', 'address_case_3', 'address_case_4',
+        'address_case_5', 'address_case_6', 'address_case_7',
+        'address_case_8', 'address_case_9', 'address_case_10',
+        'address'
+    ]
     df = df[new_order]
     print("Finished processing PDF file.")
     return df

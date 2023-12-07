@@ -27,38 +27,55 @@ def process_directory(directory):
     is_processing = True
     pdf_files = [f for f in os.listdir(directory) if f.lower().endswith('.pdf')]
     all_data = []
+
     for pdf_file in pdf_files:
         full_path = os.path.join(directory, pdf_file)
         try:
             pdf_data = reader.reader(full_path, update_progress, view=True)
             if not pdf_data.empty:
-                preview_choice = messagebox.askyesno("Preview", f"Do you want to preview the data from {pdf_file}?")
-                if preview_choice:
-                    print(f'\n\nPreviewing data from {pdf_file}:\n')
-                    print(pdf_data.columns)
-                    print('\n\n', pdf_data.head(100))
-                # preview for debugging purposes
-                # if preview_choice: # FOR ADDRESS CASES  
-                #     address_case_columns = [col for col in pdf_data.columns if 'address_case' in col]
-                #     address_columns = [col for col in pdf_data.columns if col == 'address']
-                #     print('\n\n FOR ADDRESS CASES \n\n', pdf_data[address_case_columns + address_columns].tail(50))
-                if preview_choice: # FOR BALANCE CASES
-                    balance_case_columns = [col for col in pdf_data.columns if 'balance_case' in col]
-                    balance_columns = [col for col in pdf_data.columns if col == 'balance']
-                    print('\n\n FOR BALANCE CASES \n\n', pdf_data[balance_case_columns + balance_columns].tail(50))
-                # if preview_choice: # FOR PAST DUE CASES
-                #     past_due_case_columns = [col for col in pdf_data.columns if 'past_due_case' in col]
-                #     past_due_columns = [col for col in pdf_data.columns if col == 'past_due']
-                #     print('\n\n FOR PAST DUES CASES \n\n', pdf_data[past_due_case_columns + past_due_columns].tail(50))
-                # if preview_choice: # FOR TOTAL PRODUCT CASES
-                #     total_product_case_columns = [col for col in pdf_data.columns if 'total_product_sales_case' in col]
-                #     total_product_columns = [col for col in pdf_data.columns if col == 'total_product']
-                #     print('\n\n FOR TOTAL PRODUCT CASES \n\n', pdf_data[total_product_case_columns + total_product_columns].tail(50))
-            all_data.append(pdf_data)
+                all_data.append(pdf_data)
         except Exception as e:
             messagebox.showerror("Error", f'Error processing {pdf_file}: {e}')
+
+    combined_data = pd.concat(all_data, ignore_index=True) if all_data else None
+
+    # Preview option after processing all files
+    if combined_data is not None:
+        preview_choice = messagebox.askyesno("Preview", "Do you want to preview the combined data from all files?")
+        if preview_choice:
+            print('\n\nPreviewing combined data:\n')
+            print(combined_data.columns)
+            print('\n\n', combined_data.head(100))
+            preview_data_with_user_input(combined_data)
+
     is_processing = False
-    return pd.concat(all_data, ignore_index=True) if all_data else None
+    return combined_data
+
+def preview_data_with_user_input(pdf_data):
+    """
+    Asks the user for the types of columns they want to preview and then displays those columns in a single DataFrame.
+
+    :param pdf_data: DataFrame containing the extracted data.
+    """
+    user_input = input("Enter the types of columns you want to preview, separated by commas (e.g., 'balance, customer_number'): ")
+    column_types = [col_type.strip() for col_type in user_input.split(',')]
+
+    columns_to_show = []
+    for column_type in column_types:
+        case_columns = [col for col in pdf_data.columns if f'{column_type}_case' in col]
+        main_columns = [col for col in pdf_data.columns if col == column_type]
+        columns_to_show.extend(case_columns + main_columns)
+
+    # Check if any columns to show are present in the DataFrame
+    existing_columns = [col for col in columns_to_show if col in pdf_data.columns]
+
+    if existing_columns:
+        print('\n\n Previewing Columns:\n\n')
+        preview_df = pdf_data[existing_columns]
+        print(preview_df.tail(50))
+    else:
+        print("No matching columns found for the given input.")
+
 
 def analyze_multiple_files():
     file_paths = filedialog.askopenfilenames(filetypes=[("PDF files", "*.pdf")])
