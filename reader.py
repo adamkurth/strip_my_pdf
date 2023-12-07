@@ -34,16 +34,18 @@ def process_text(text):
         # collection notes
         'collection_notes_case_1': r'Collection Status\s+Total Product Sales[^\n]*?\bPP\b\s+([A-Z\s]+)\s+\d+\.\d{2}',
         'collection_notes_case_2': r'PP\s+(BAD DEBT)',
+        'collection_notes_case_3': r'Collection Status\s+Total Product Sales[^\n]*?\bPP\b\s+([A-Z\s]+)\s+\d+\.\d{2}',
+        'collection_notes_case_4': r'Collection Status\s+Total Product Sales[^\n]*?(CBL/CORI COLLECTING)\b',
         # total product sales
         'total_product_sales_case_1': r'(\d{1,3}(?:,\d{3})*\.\d{2})',
         'total_product_sales_case_2': r"Total Product Sales(?:[A-Z\s]+)?(\d+\.\d{2})",
         # balance
         'balance_case_1': r'(\d{1,6}\.\d{2})\s+Invoice #',
-        'balance_case_2': r'Balance Past DueADDR 1 [A-Z\s]+ ([-\d\.\-]+)',
+        'balance_case_2': r'\b0\.00(-\d{1,3}(,\d{3})*\.\d{2})\b',
+        'balance_case_3': r'-?\d{1,3}(,\d{3})*\.\d{2}(?=\s+Invoice #)',
         # past due
         'past_due_case_1': r'(\d{1,6}\.\d{2})\s+Invoice #', 
         'past_due_case_2':r'Past\s+Due\s+[A-Z\s/#:]+(\d{1,3}(?:,\d{3})*\.\d{2})',
-        
         # addresses
         'address_case_1': r'\d+ Collection Notes.*?(\d{1,5}\s[\w\s-]+?\s(RD|ST|AVE|LN|DR|BLVD|WAY|CT|PL)\s[\w\s-]+?,\s[A-Z]{2}\s\d{5})',
         'address_case_2': r'(\d{1,5} [A-Z0-9 ]+ (RD|ST|AVE|LN|DR|BLVD|WAY|CT|PL) [A-Z]+, [A-Z]{2} \d{5})',
@@ -68,14 +70,25 @@ def process_text(text):
     sales_values = [extracted_data.get(f'total_product_sales_case_{i}') for i in range(1, 3)]
     best_sales_values = select_best_sales_value(sales_values)
     extracted_data['total_product_sales'] = best_sales_values
-        
-    collection_status_values = {
-        f'collection_status_case_{i}': extracted_data.get(f'collection_status_case_{i}', []) 
-        for i in range(1, 5)
-    }
-    best_collection_status = select_best_collection_status(collection_status_values)
-    extracted_data['collection_status'] = best_collection_status
+    
+    # best collection status case
+    extracted_data['collection_status'] = extracted_data.get('collection_status_case_4', [])
+    
+    # best collection notes 
+    
+    # best balance case
+    balance_values = [
+        extracted_data.get('balance_case_1', None),
+        extracted_data.get('balance_case_2', None)
+    ]
+    best_balance = select_best_balance_case(balance_values[:2])  # Pass only the first two items
+    extracted_data['balance'] = best_balance
 
+    # assigning account number
+    extracted_data['account_number'] = extracted_data['customer_number']
+    
+    # assign total product salesa
+    extracted_data['total_product_sales'] = extracted_data.get('total_product_sales_case_1', None)
     return extracted_data
 
 def select_best_address(addresses, business_name):
@@ -113,24 +126,25 @@ def select_best_sales_value(sales_values):
     # Choose the largest sales value among valid values
     return str(max(valid_sales))
 
-def select_best_collection_status(collection_status_cases):
-    if not isinstance(collection_status_cases, dict):
-        raise TypeError("collection_status_cases should be a dictionary.")
-    # Initialize variables to track the best column and its count of valid (non-None) entries
-    best_column = None
-    max_valid_count = -1
-   # Iterate over each collection status case in the dictionary
-    for col, values in collection_status_cases.items():
-        # Count the number of valid (non-None) entries in the list
-        valid_count = sum(value is not None for value in values)
-        
-        # If this count is higher than the current maximum, update best_column and max_valid_count
-        if valid_count > max_valid_count:
-            max_valid_count = valid_count
-            best_column = col
+def select_best_balance_case(balance_cases):
+    balance_case_1, balance_case_2 = balance_cases
 
-    # Return the list of values for the best column, or an empty list if no best column is found
-    return collection_status_cases.get(best_column, [])
+    # Check if balance_case_2 has a valid entry, prioritize it if so
+    if balance_case_2 and is_valid_balance(balance_case_2):
+        return balance_case_2
+    # Default to balance_case_1 if balance_case_2 is not valid or empty
+    return balance_case_1
+
+def is_valid_balance(value):
+    """Check if the value is a valid balance."""
+    if value is None:
+        return False
+    # Check if the value is a number (including negative numbers)
+    try:
+        float(value.replace(',', ''))  # Remove commas for conversion
+        return True
+    except ValueError:
+        return False
 
 def reader(filename, progress_callback, view=False):
     print(f"Processing PDF file: {filename}")
@@ -141,6 +155,8 @@ def reader(filename, progress_callback, view=False):
                 if page_number == 1435:
                     print(f"Page {page_number}:\n{text}\n{'-'*40}")
                 if page_number == 1481:
+                    print(f"Page {page_number}:\n{text}\n{'-'*40}")
+                if page_number == 21: 
                     print(f"Page {page_number}:\n{text}\n{'-'*40}")
 
     with open(filename, 'rb') as pdf_file:
@@ -182,15 +198,17 @@ def reader(filename, progress_callback, view=False):
         'date', 'business_name', 'contact_name',
         'collection_status_case_1', 'collection_status_case_2', 'collection_status_case_3', 'collection_status_case_4',
         'collection_status',
+        'collection_notes_case_1', 'collection_notes_case_2', 'collection_notes_case_3', 'collection_notes',
         'customer_number', 
         'phone_number_1', 'phone_number_2', 
-        'balance_case_1', 'balance_case_2',  # Added missing comma
+        'balance_case_1', 'balance_case_2', 'balance_case_3', 'balance',
         'past_due_case_1', 
         'total_product_sales', 'total_product_sales_case_1', 'total_product_sales_case_2',
         'address_case_1', 'address_case_2', 'address_case_3', 'address_case_4',
         'address_case_5', 'address_case_6', 'address_case_7',
         'address_case_8', 'address_case_9', 'address_case_10',
-        'address'
+        'address', 
+        'account_number'
     ]
     df = df[new_order]
     print("Finished processing PDF file.")

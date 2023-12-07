@@ -72,7 +72,8 @@ def preview_data_with_user_input(pdf_data):
     if existing_columns:
         print('\n\n Previewing Columns:\n\n')
         preview_df = pdf_data[existing_columns]
-        print(preview_df.tail(50))
+        print(preview_df.head(50))
+        print(preview_df.tail(50))        
     else:
         print("No matching columns found for the given input.")
 
