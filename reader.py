@@ -246,4 +246,38 @@ def refine_dataframe(df):
         'balance', 'past_due', 'total_product_sales',
         'address', 'account_number'
     ]
-    return df[columns_to_keep].copy()
+    df = df[columns_to_keep].copy()
+
+    # Fill NaN values for 'collection_notes' and 'total_product_sales'
+    df['collection_notes'] = df['collection_notes'].fillna('')
+    df['total_product_sales'] = pd.to_numeric(df['total_product_sales'].fillna(0), errors='coerce')
+    
+    omitted_cases = pd.DataFrame()
+
+    rules = [
+        # Rule 1: BAD DEBT < $7,000 total product sales
+        {'filter': (df['collection_notes'].str.contains('BAD DEBT', na=False)) & (df['total_product_sales'] < 7000)},
+        # Rule 2: PP < $7,000 total product sales
+        {'filter': (df['collection_notes'].str.contains('PP', na=False)) & (df['total_product_sales'] < 7000)},
+        # Rule 3: All accounts < $200 total product sales
+        {'filter': (df['total_product_sales'] < 200)},
+        # Rule 4: Collection Notes say "Greenburg" or "Outside Collections"
+        {'filter': df['collection_notes'].str.contains('Greenburg|Outside Collections', case=False, na=False)},
+    ]
+    
+    for rule in rules:
+        # Extract the filter from the current rule
+        current_filter = rule['filter']
+
+        # Log the cases that are about to be omitted
+        omitted_cases = pd.concat([omitted_cases, df[current_filter]], ignore_index=True)
+
+        # Apply the filter to the DataFrame
+        df = df[~current_filter]
+
+    # Optional: Verify that the rules are applied correctly
+    print("Verification: Number of omitted cases per rule")
+    for i, rule in enumerate(rules, 1):
+        print(f"Rule {i}: {sum(rule['filter'])} cases omitted.")
+
+    return df, omitted_cases

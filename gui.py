@@ -106,7 +106,7 @@ def process_data(data):
         
         if export_choice:
             # Refine DataFrame and export
-            refined_data = reader.refine_dataframe(data)
+            refined_data, omitted_cases = reader.refine_dataframe(data)
             export_dataframe(refined_data)
         else:
             # Export full DataFrame for debugging
