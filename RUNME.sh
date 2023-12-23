@@ -27,7 +27,7 @@ if ! conda info --envs | grep -q "^$ENV_NAME\s"; then
     echo "Creating environment $ENV_NAME."
     mamba create -n "$ENV_NAME" python=3.12 -y
 else
-    echo "Environment $ENV_NAME already exists."
+    echo "Environment $ENV_NAME already exists."d
 fi
 
 # Activate the environment

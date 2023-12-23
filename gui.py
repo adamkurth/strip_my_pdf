@@ -47,37 +47,40 @@ def process_directory(directory):
     if combined_data is not None:
         preview_choice = messagebox.askyesno("Preview", "Do you want to preview the combined data from all files?")
         if preview_choice:
-            print('\n\nPreviewing combined data:\n')
-            print(combined_data.columns)
-            print('\n\n', combined_data.head(100))
+            print("Please choose columns:\n\n", combined_data.columns, "\n")
             preview_data_with_user_input(combined_data)
 
     is_processing = False
     return combined_data
 
 def preview_data_with_user_input(pdf_data):
-    """
-    Asks the user for the types of columns they want to preview and then displays those columns in a single DataFrame.
-
-    :param pdf_data: DataFrame containing the extracted data.
-    """
     user_input = input("Enter the types of columns you want to preview, separated by commas (e.g., 'balance, customer_number'): ")
     column_types = [col_type.strip() for col_type in user_input.split(',')]
 
     columns_to_show = []
     for column_type in column_types:
-        case_columns = [col for col in pdf_data.columns if f'{column_type}_case' in col]
-        main_columns = [col for col in pdf_data.columns if col == column_type]
-        columns_to_show.extend(case_columns + main_columns)
+        # Check for the main column
+        if column_type in pdf_data.columns:
+            columns_to_show.append(column_type)
+        # Add any 'case' columns related to the main column
+        columns_to_show.extend([col for col in pdf_data.columns if col.startswith(f'{column_type}_case')])
 
-    # Check if any columns to show are present in the DataFrame
     existing_columns = [col for col in columns_to_show if col in pdf_data.columns]
 
     if existing_columns:
-        print('\n\n Previewing Columns:\n\n')
-        preview_df = pdf_data[existing_columns]
-        print(preview_df.head(50))
-        print(preview_df)        
+        print("\n\nRefined DataFrame:\n\n")
+        # Refine the entire DataFrame, not just the existing columns
+        refined_df, omitted_cases = reader.refine_dataframe(pdf_data)
+        # Ensure only existing columns are accessed
+        safe_refined_columns = [col for col in existing_columns if col in refined_df.columns]
+        safe_omitted_columns = [col for col in existing_columns if col in omitted_cases.columns]
+
+        # Display the desired columns from the refined DataFrame
+        print(refined_df[safe_refined_columns].head(50))
+
+        # Display the desired columns from the omitted cases DataFrame
+        print("\n\nOmitted Cases:\n\n")
+        print(omitted_cases[safe_omitted_columns].head(50))
     else:
         print("No matching columns found for the given input.")
 
@@ -103,7 +106,6 @@ def process_data(data):
     if data is not None and not data.empty:
         # Ask user for the type of DataFrame to export
         export_choice = messagebox.askyesno("Export", "Choose 'Yes' for final DataFrame or 'No' for debugging DataFrame.")
-        
         if export_choice:
             # Refine DataFrame and export
             refined_data, omitted_cases = reader.refine_dataframe(data)

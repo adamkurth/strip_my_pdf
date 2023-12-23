@@ -239,6 +239,7 @@ def reader(filename, progress_callback, view=False):
     return df
 
 def refine_dataframe(df):
+    # Columns to keep in the output
     columns_to_keep = [
         'date', 'business_name', 'contact_name',
         'collection_status', 'collection_notes',
@@ -246,38 +247,31 @@ def refine_dataframe(df):
         'balance', 'past_due', 'total_product_sales',
         'address', 'account_number'
     ]
+
+    # Keep only columns that exist in the DataFrame
+    columns_to_keep = [col for col in columns_to_keep if col in df.columns]
     df = df[columns_to_keep].copy()
 
-    # Fill NaN values for 'collection_notes' and 'total_product_sales'
-    df['collection_notes'] = df['collection_notes'].fillna('')
-    df['total_product_sales'] = pd.to_numeric(df['total_product_sales'].fillna(0), errors='coerce')
-    
-    omitted_cases = pd.DataFrame()
+    # Convert 'total_product_sales' to a numeric value for comparison
+    df['total_product_sales'] = pd.to_numeric(df['total_product_sales'], errors='coerce').fillna(0)
 
-    rules = [
-        # Rule 1: BAD DEBT < $7,000 total product sales
-        {'filter': (df['collection_notes'].str.contains('BAD DEBT', na=False)) & (df['total_product_sales'] < 7000)},
-        # Rule 2: PP < $7,000 total product sales
-        {'filter': (df['collection_notes'].str.contains('PP', na=False)) & (df['total_product_sales'] < 7000)},
-        # Rule 3: All accounts < $200 total product sales
-        {'filter': (df['total_product_sales'] < 200)},
-        # Rule 4: Collection Notes say "Greenburg" or "Outside Collections"
-        {'filter': df['collection_notes'].str.contains('Greenburg|Outside Collections', case=False, na=False)},
-    ]
-    
-    for rule in rules:
-        # Extract the filter from the current rule
-        current_filter = rule['filter']
+    # Rules for filtering
+    rule_1_filter = df['collection_status'].str.contains('PP', na=False) & (df['total_product_sales'] < 7000)
+    rule_2_filter = df['collection_notes'].str.contains('BAD DEBT', na=False) & (df['total_product_sales'] < 7000)
 
-        # Log the cases that are about to be omitted
-        omitted_cases = pd.concat([omitted_cases, df[current_filter]], ignore_index=True)
+    # Apply the filters and capture omitted cases
+    omitted_cases = df[rule_1_filter | rule_2_filter].copy()
 
-        # Apply the filter to the DataFrame
-        df = df[~current_filter]
+    # Update the DataFrame to exclude omitted cases
+    df = df[~(rule_1_filter | rule_2_filter)]
 
-    # Optional: Verify that the rules are applied correctly
+    # Reset 'total_product_sales' values of 0 to NaN to indicate unknown
+    df['total_product_sales'] = df['total_product_sales'].replace({0: pd.NA})
+    omitted_cases['total_product_sales'] = omitted_cases['total_product_sales'].replace({0: pd.NA})
+
+    # Verification: Number of omitted cases per rule
     print("Verification: Number of omitted cases per rule")
-    for i, rule in enumerate(rules, 1):
-        print(f"Rule {i}: {sum(rule['filter'])} cases omitted.")
+    print(f"PP < $7000: {rule_1_filter.sum()} cases omitted.")
+    print(f"BAD DEBT < $7000: {rule_2_filter.sum()} cases omitted.")
 
     return df, omitted_cases
