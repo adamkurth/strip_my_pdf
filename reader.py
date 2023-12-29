@@ -2,6 +2,7 @@
 import PyPDF2
 import pandas as pd
 import re
+import numpy as np
 
 def clean_text(text):
     text = text.replace('\n', ' ')
@@ -237,8 +238,7 @@ def reader(filename, progress_callback, view=False):
     df = df[new_order]
     print("Finished processing PDF file.")
     return df
-
-def refine_dataframe(df):
+def refine_dataframe(df, cutoff=7000):
     # Columns to keep in the output
     columns_to_keep = [
         'date', 'business_name', 'contact_name',
@@ -255,23 +255,17 @@ def refine_dataframe(df):
     # Convert 'total_product_sales' to a numeric value for comparison
     df['total_product_sales'] = pd.to_numeric(df['total_product_sales'], errors='coerce').fillna(0)
 
-    # Rules for filtering
-    rule_1_filter = df['collection_status'].str.contains('PP', na=False) & (df['total_product_sales'] < 7000)
-    rule_2_filter = df['collection_notes'].str.contains('BAD DEBT', na=False) & (df['total_product_sales'] < 7000)
+    # Define rules for filtering
+    rule_1_filter = df['collection_status'].str.contains('PP', na=False) & (df['total_product_sales'] < cutoff)
+    rule_2_filter = df['collection_notes'].str.contains('BAD DEBT', na=False) & (df['total_product_sales'] < cutoff)
 
     # Apply the filters and capture omitted cases
+    included_cases = df[~(rule_1_filter | rule_2_filter)].copy()  # Inverting the filter to include other cases
+
+    # Update 'total_product_sales' values of 0 to NaN to indicate unknown or unrecorded values
+    included_cases.loc[included_cases['total_product_sales'] == 0, 'total_product_sales'] = np.nan
+
+    # Omitted cases based on the original rules
     omitted_cases = df[rule_1_filter | rule_2_filter].copy()
 
-    # Update the DataFrame to exclude omitted cases
-    df = df[~(rule_1_filter | rule_2_filter)]
-
-    # Reset 'total_product_sales' values of 0 to NaN to indicate unknown
-    df['total_product_sales'] = df['total_product_sales'].replace({0: pd.NA})
-    omitted_cases['total_product_sales'] = omitted_cases['total_product_sales'].replace({0: pd.NA})
-
-    # Verification: Number of omitted cases per rule
-    print("Verification: Number of omitted cases per rule")
-    print(f"PP < $7000: {rule_1_filter.sum()} cases omitted.")
-    print(f"BAD DEBT < $7000: {rule_2_filter.sum()} cases omitted.")
-
-    return df, omitted_cases
+    return included_cases, omitted_cases

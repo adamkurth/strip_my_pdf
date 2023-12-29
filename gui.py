@@ -2,9 +2,11 @@
 import tkinter as tk
 from tkinter import filedialog, messagebox
 from tkinter import ttk
+from tkinter import simpledialog
 import os
 import pandas as pd
 import reader  # Importing the reader module
+import numpy as np
 
 is_processing = False
 
@@ -55,7 +57,7 @@ def process_directory(directory):
 
 def preview_data_with_user_input(pdf_data):
     user_input = input("Enter the types of columns you want to preview, separated by commas (e.g., 'balance, customer_number'): ")
-    column_types = [col_type.strip() for col_type in user_input.split(',')]
+    column_types = [col_type.strip() for col_type in user_input.strip(',').split(',')]
 
     columns_to_show = []
     for column_type in column_types:
@@ -107,8 +109,13 @@ def process_data(data):
         # Ask user for the type of DataFrame to export
         export_choice = messagebox.askyesno("Export", "Choose 'Yes' for final DataFrame or 'No' for debugging DataFrame.")
         if export_choice:
+            # Ask user for cutoff value
+            cutoff = simpledialog.askfloat("Input", "Enter the cutoff value:", parent=root)
+            if cutoff is None:  # If the user closes the dialog or clicks Cancel
+                cutoff = 7000  # Use a default value
+
             # Refine DataFrame and export
-            refined_data, omitted_cases = reader.refine_dataframe(data)
+            refined_data, omitted_cases = reader.refine_dataframe(data, cutoff)
             export_dataframe(refined_data)
         else:
             # Export full DataFrame for debugging
